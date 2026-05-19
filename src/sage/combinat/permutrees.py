@@ -397,12 +397,14 @@ def min_transposition_distance(p: Permutation, p2, depth=0):
     return min + 1
 
 
+
 p = Permutation([3,7,5,2,1,4,6])
 print(list(p))
 #pt = Permutree(p, [1, 1, 0, 2, 0, 3, 2])
 #print(pt)
 
 pt = Permutree(p, [0,1,0,1,2,3,2])
+print(pt._expanded_bresenham(2, 4, 6,8))
 print(pt)
 pt2 = pt.rotation(2, 3)
 print(pt2)
