@@ -49,10 +49,10 @@ class Permutree():
         for i in range(self.size):
             self._decorations[permutation.dict()[i+1]] = decoration[i]
 
-        self.calculate_walls()
+        self._calculate_walls()
         self.insertion(permutation)
 
-    def calculate_walls(self):
+    def _calculate_walls(self):
         r"""
         walls: [number in permutation, down wall, up wall]
         """
@@ -65,6 +65,7 @@ class Permutree():
                 wall[1] = True
             walls[i] = wall
         self._walls = walls
+
 
     def insertion(self, permutation):
         active_regions = []  # region = [left wall, right wall, source number of active edge]
@@ -121,6 +122,39 @@ class Permutree():
         for k, v in self._vertex_parents.items():
             self._vertex_parents[k] = sorted(v)
 
+    def rotation(self, i, j):
+        """
+        Rotates permutree vertices at horizontal index i and j
+        """
+        for k, v in self._vertex_parents.items():
+            self._vertex_parents[k] = sorted(v)
+            if len(v) > 1 and v[0] == -1 and v[1] < k:
+                v[0], v[1] = v[1], v[0]
+
+        if i in self._vertex_parents[j]:
+            i, j = j, i
+        if i in self._vertex_parents[j]:
+            return  # Does nothing if vertices are non-adjacent
+        index = self._vertex_parents[i].index(j)
+        U = self._vertex_parents[j][0 if i < j or self._decorations[j].parent_count() == 1 else 1]
+        U_index = self._vertex_parents[j].index(U)
+        D = -1
+        D_index = -1
+
+        for k, v in self._vertex_parents.items():
+            if ((i in v and (k > i or self._decorations[i].child_count() == 1) and i < j) or
+                    (i in v and (k < i or self._decorations[i].child_count() == 1) and i > j)):
+                D = k
+                D_index = v.index(i)
+
+        self._vertex_parents[i][index] = U
+        self._vertex_parents[j][U_index] = i
+        if D != -1:
+            self._vertex_parents[D][D_index] = j
+
+        for k, v in self._vertex_parents.items():
+            self._vertex_parents[k] = sorted(v)
+
 
 
 
@@ -129,7 +163,17 @@ class LeveledPermutree(Permutree):
         Permutree.__init__(self, permutation, decoration)
 
         self._underlying_permutation = permutation
-    def _expanded_bresenham(self, y1, x1, y2, x2):
+
+    def rotation(self, i, j):
+        if j in self._vertex_parents[i] or i in self._vertex_parents[j]:
+            permutation_list = list(self._underlying_permutation)
+            i_index = self._underlying_permutation.index(i)
+            j_index = self._underlying_permutation.index(j)
+            permutation_list[j_index], permutation_list[i_index] = permutation_list[i_index], permutation_list[j_index]
+            self._underlying_permutation = Permutation(permutation_list)
+            Permutree.rotation(self, i, j)
+
+    def _expanded_bresenham(self, y1, x1, y2, x2):  # TODO: Find a way to reduce or remove this
         points = []
         i = 0
         xstep = ystep = 1
@@ -184,6 +228,7 @@ class LeveledPermutree(Permutree):
 
     def __str__(self):  # TODO: needs to be cleaned up
         level = self._underlying_permutation.dict()
+        reverse_level = dict(zip(level.values(), level.keys()))
         decoration_string = {Decoration.I:"I", Decoration.Down:"⅄", Decoration.Up:"Y", Decoration.X:"X"}
         res = []
         res_str = ""
@@ -193,7 +238,7 @@ class LeveledPermutree(Permutree):
             res.append(["     " for _ in range(self.size+2)])
 
         for n in range(1, self.size+1, 1):  # Add nodes
-            res[(self.size-level[n]-1)*2+1][n-1] = " (" + decoration_string[self._decorations[n]] + ") "
+            res[(self.size-reverse_level[n])*2+1][n] = " (" + decoration_string[self._decorations[n]] + ") "
 
         for l in range(len(res)):  # Transform into list of characters
             res_str = ""
@@ -202,40 +247,60 @@ class LeveledPermutree(Permutree):
             res[l] = list(res_str)
 
         paths_to_draw = []
+        bottom_connections = {i:[0,0] for i in range(1, self.size + 1, 1)}
         for nb, parents in self._vertex_parents.items():
             for p in parents:
                 if p != -1:  # Connections between vertices
+                    bottom_connections[p][0 if p > nb else 1] = 1
                     offsets = [0, 0]
                     if self._decorations[nb] == Decoration.X or self._decorations[nb] == Decoration.Up:
                         offsets[0] = -1 if p < nb else 1
                     if self._decorations[p] == Decoration.X or self._decorations[p] == Decoration.Down:
                         offsets[1] = 1 if p < nb else -1
-                    paths_to_draw.append(self._expanded_bresenham( (2*(self.size-level[nb])),
+                    paths_to_draw.append(self._expanded_bresenham( (2*(self.size-reverse_level[nb])),
                                                                    5*(nb-1) + 7 + offsets[0],
-                                                                   (2*(self.size-level[p]+1)),
+                                                                   (2*(self.size-reverse_level[p]+1)),
                                                                    5*(p-1) + 7 + offsets[1]))
                 else:  # Connections between vertices and empty space above
-                    if len(parents) == 1:
-                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - level[nb])),
+                    if len(parents) == 1:  # I/Down decoration with no parents
+                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - reverse_level[nb])),
                                                                       5 * (nb - 1) + 7,
                                                                       0,
                                                                       5 * (nb - 1) + 7))
-                    elif parents[1] == -1:
-                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - level[nb])),
+                    elif parents[1] == -1:  # X/Up decoration with no parents
+                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - reverse_level[nb])),
                                                                       5 * (nb - 1) + 6,
                                                                       0,
                                                                       5 * (nb - 2) + 7))
-                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - level[nb])),
+                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - reverse_level[nb])),
                                                                       5 * (nb - 1) + 8,
                                                                       0,
                                                                       5 * (nb) + 7))
                         break
                     else:
                         offset = 1 if parents[1] < nb else -1
-                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - level[nb])),
+                        paths_to_draw.append(self._expanded_bresenham((2 * (self.size - reverse_level[nb])),
                                                                       5 * (nb - 1) + 7 + offset,
                                                                       0,
-                                                                      5 * (nb) + 7))
+                                                                      5 * (nb - 1 + offset) + 7))
+        for nb, children in bottom_connections.items():
+            if self._decorations[nb].child_count() == 1 and sum(children) == 0:
+                paths_to_draw.append(self._expanded_bresenham((2 * (self.size - reverse_level[nb]) + 2),
+                                                              5 * (nb - 1) + 7,
+                                                              2*self.size,
+                                                              5 * (nb - 1) + 7))
+            elif self._decorations[nb].child_count() == 2 and children[0] == 0:
+                paths_to_draw.append(self._expanded_bresenham(2*self.size,
+                                                              5 * (nb - 2) + 7,
+                                                              (2 * (self.size - reverse_level[nb]) + 2),
+                                                              5 * (nb - 1) + 6))
+            elif self._decorations[nb].child_count() == 2 and children[1] == 0:
+                paths_to_draw.append(self._expanded_bresenham(2*self.size,
+                                                              5 * (nb) + 7,
+                                                              (2 * (self.size - reverse_level[nb]) + 2),
+                                                              5 * (nb - 1) + 8))
+
+
 
         for p in paths_to_draw:
             p = [[p[0][0]+1, p[0][1]]] + p + [[p[-1][0]-1, p[-1][1]]]
@@ -251,83 +316,21 @@ class LeveledPermutree(Permutree):
                     mat_next = [-1, 1, 2][p[cell + 1][1] - p[cell][1]]  # 1 = right, 2 = left
                 res[p[cell][0]][p[cell][1]] = path_matrix[mat_prev][mat_next]
 
-
-
-
-        orig_pos = []
-        #if self.print_walls:
-        #    for w in self.walls:
-        #        wall_node = self.nodes[perm_inv_dict[w[0]] - 1]
-        #        if w[1]:
-        #            for i in range((len(self.dec) - wall_node.level) * 2 + 2, 2*len(self.dec)+1, 1):
-        #                res[i][5 * (wall_node.position - 1) + 7] = '╵'
-        #        elif w[2]:
-        #            for i in range(0, (len(self.dec) - wall_node.level) * 2+1, 1):
-        #                res[i][5 * (wall_node.position - 1) + 7] = '╵'
-
-        orig_pos = []  # list of [orig_y, orig_x, origin_node, destination_node]
-
-
-
-        #for n in self.nodes:
-        #    if n.get_child("bl") == -1 or n.get_child("br") == -1:
-        #        if n.decoration == 0 or n.decoration == 1:
-        #            orig_pos.append([(len(self.dec) - n.level) * 2 + 2, 5 * (n.position - 1) + 7, -1, n.position])
-        #        else:
-        #            for b in ["bl", "br"]:
-        #                if n.get_child(b) == -1:
-        #                    orig_pos.append([(len(self.dec)-n.level)*2 + 2, 5*(n.position-1)+(6 if b == "bl" else 8), -1, n.position])
-        #    if n.decoration == 0 or n.decoration == 2:
-        #        orig_pos.append([(len(self.dec)-n.level)*2, 5*(n.position-1)+7, n.position, n.get_child("t")])
-        #    else:
-        #        for t in ["tl", "tr"]:
-        #            orig_pos.append([(len(self.dec)-n.level)*2, 5*(n.position-1)+(6 if t == "tl" else 8), n.position, n.get_child(t)])
-#
-        #    for op in orig_pos:
-        #        if op[2] == -1:  # Case for down into the void
-        #            curr_node = self.nodes[perm_inv_dict[op[3]]-1]
-        #            if curr_node.decoration == 0 or curr_node.decoration == 1:
-        #                dest_pos = [2*len(self.dec), op[1]]
-        #            else:
-        #                dest_pos = [2*len(self.dec), op[1] + 4 * (1 if op[1]-(5*(curr_node.position-1)+7) > 0 else -1)]
-        #            dest_pos, op = op, dest_pos
-#
-        #        elif op[3] != -1:
-        #            dest_node = self.nodes[perm_inv_dict[op[3]]-1]
-        #            if dest_node.decoration == 0 or dest_node.decoration == 1:
-        #                dest_pos = (len(self.dec) - dest_node.level) * 2 + 2, 5 * (dest_node.position-1) + 7
-        #            else:
-        #                dest_pos = (len(self.dec) - dest_node.level) * 2 + 2, 5 * (dest_node.position-1) + (6 if dest_node.get_child("bl") == op[2] else 8)
-#
-        #        else:  # Case for up into the void
-        #            curr_node = self.nodes[perm_inv_dict[op[2]]-1]
-        #            if curr_node.decoration == 0 or curr_node.decoration == 2:
-        #                dest_pos = [0, op[1]]
-        #            else:
-        #                dest_pos = [0, op[1] + 4 * (1 if op[1]-(5*(curr_node.position-1)+7) > 0 else -1)]
-#
-        #        node_list = [[op[0] + 1, op[1]]] + self._expanded_bresenham(op[0], op[1], dest_pos[0], dest_pos[1]) + [[dest_pos[0]-1, dest_pos[1]]]
-        #        path_matrix = [["│", "┌", "┐"],
-        #                       ["└", "o", "─"],
-        #                       ["┘", "─", "o"]]
-        #        for path in range(1, len(node_list)-1, 1):  # draws path
-        #            mat_prev = 0
-        #            if node_list[path-1][0] - node_list[path][0] == 0:  # 0 = down
-        #                mat_prev = [-1, 1, 2][node_list[path-1][1] - node_list[path][1]]  # 1 = right, 2 = left
-        #            mat_next = 0
-        #            if node_list[path][0] - node_list[path+1][0] == 0:  # 0 = up
-        #                mat_next = [-1, 1, 2][node_list[path+1][1] - node_list[path][1]]  # 1 = right, 2 = left
-        #            res[node_list[path][0]][node_list[path][1]] = path_matrix[mat_prev][mat_next]
-
-
-
-        #   orig_pos = []
+        print(bottom_connections)
         res_str = ""
         for s in res:
             res_str += "".join(s) + "\n"
         return res_str
 
-p = Permutation([3,7,5,2,1,4,6])
-pt = LeveledPermutree(p, [Decoration.I,Decoration.Up,Decoration.I,Decoration.Up,Decoration.Down,Decoration.X,Decoration.Down])
-print(pt._vertex_parents)
-print(pt)
+
+#  For testing
+
+#p = Permutation([3,7,5,2,1,4,6])
+#pt = LeveledPermutree(p, [Decoration.I,Decoration.Up,Decoration.I,Decoration.Up,Decoration.Down,Decoration.X,Decoration.Down])
+#
+#print(pt._vertex_parents)
+#print(pt)
+#
+#pt.rotation(1,2)
+#print(pt)
+#print(pt._vertex_parents)
